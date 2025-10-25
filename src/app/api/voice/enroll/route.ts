@@ -76,10 +76,12 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    if (voiceEmbedding.length !== 512) {
+    // Accept 192-dim (SpeechBrain ECAPA-TDNN) or 512-dim (legacy/other models)
+    const validDimensions = [192, 512];
+    if (!validDimensions.includes(voiceEmbedding.length)) {
       console.error('[VALIDATION] voiceEmbedding wrong length:', voiceEmbedding.length);
       return NextResponse.json({ 
-        error: `voiceEmbedding must contain exactly 512 numbers (received ${voiceEmbedding.length})`,
+        error: `voiceEmbedding must be 192 or 512 dimensional (received ${voiceEmbedding.length})`,
         code: "INVALID_VOICE_EMBEDDING_LENGTH" 
       }, { status: 400 });
     }

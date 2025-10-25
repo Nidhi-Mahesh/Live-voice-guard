@@ -71,8 +71,24 @@ export default function VoiceEnrollment() {
 
   async function startRecording() {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          channelCount: 1, // Mono
+          sampleRate: 16000, // 16kHz for better compatibility
+          echoCancellation: true,
+          noiseSuppression: true
+        } 
+      });
+      
+      // Try to use audio/wav if supported, fallback to webm
+      let mimeType = 'audio/webm';
+      if (MediaRecorder.isTypeSupported('audio/wav')) {
+        mimeType = 'audio/wav';
+      } else if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+        mimeType = 'audio/webm;codecs=opus';
+      }
+      
+      const mediaRecorder = new MediaRecorder(stream, { mimeType });
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
       recordingStartTimeRef.current = Date.now();
@@ -86,7 +102,7 @@ export default function VoiceEnrollment() {
       mediaRecorder.onstop = () => {
         const duration = (Date.now() - recordingStartTimeRef.current) / 1000;
         setAudioDuration(duration);
-        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
         processEnrollment(audioBlob, duration);
         stream.getTracks().forEach((track) => track.stop());
       };
@@ -110,24 +126,35 @@ export default function VoiceEnrollment() {
     setEnrollmentState("processing");
     
     try {
-      // Simulate progress updates
-      for (let i = 0; i <= 30; i += 10) {
-        setEnrollmentProgress(i);
-        await new Promise((resolve) => setTimeout(resolve, 100));
+      // Progress: Starting
+      setEnrollmentProgress(10);
+      
+      // STEP 1: Extract real voice embedding from audio
+      const formData = new FormData();
+      formData.append('audio', audioBlob, 'recording.webm');
+      
+      setEnrollmentProgress(20);
+      
+      // Call Python voice embedding service
+      const embeddingResponse = await fetch('http://localhost:8000/extract-embedding', {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (!embeddingResponse.ok) {
+        const errorData = await embeddingResponse.json();
+        throw new Error(errorData.detail || 'Failed to extract voice embedding');
       }
-
-      // Generate mock voice embedding (512-dimensional)
-      const voiceEmbedding = generateVoiceEmbedding();
+      
+      const embeddingData = await embeddingResponse.json();
+      const voiceEmbedding = embeddingData.embedding;
+      const audioQuality = embeddingData.audio_quality_snr;
+      
+      setEnrollmentProgress(50);
       
       // Generate device fingerprint
       const deviceId = generateDeviceId();
       
-      // Calculate mock quality score (SNR-like metric, 70-95)
-      const audioQuality = 70 + Math.random() * 25;
-
-      setEnrollmentProgress(50);
-      await new Promise((resolve) => setTimeout(resolve, 200));
-
       // Generate unique userId
       const userId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
