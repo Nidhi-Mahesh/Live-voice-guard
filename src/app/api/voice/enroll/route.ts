@@ -135,46 +135,12 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Convert array to JSON string for database storage
-    const challengePhrasesJson = JSON.stringify(challengePhrasesArray);
-    console.log('[SUCCESS] Challenge phrases validated:', challengePhrasesArray.length, 'phrase(s)');
+    // Use first phrase only (database expects single phrase, not array)
+    const challengePhraseString = challengePhrasesArray[0];
+    console.log('[SUCCESS] Challenge phrase validated:', challengePhraseString);
 
     // ==========================================
-    // STEP 5: VALIDATE AND INITIALIZE AUDIO METRICS WITH FALLBACKS
-    // ==========================================
-    
-    // enrollmentAudioDuration - REQUIRED by schema, fallback to 3.5 seconds
-    let audioDuration: number = 3.5; // Default fallback
-    
-    const providedDuration = body.enrollmentAudioDuration;
-    if (providedDuration !== undefined && providedDuration !== null) {
-      if (typeof providedDuration === 'number' && providedDuration > 0 && isFinite(providedDuration)) {
-        audioDuration = providedDuration;
-        console.log('[SUCCESS] Using provided enrollmentAudioDuration:', audioDuration);
-      } else {
-        console.warn('[FALLBACK] Invalid enrollmentAudioDuration:', providedDuration, '- using default:', audioDuration);
-      }
-    } else {
-      console.warn('[FALLBACK] Missing enrollmentAudioDuration - using default:', audioDuration);
-    }
-
-    // enrollmentAudioQuality - REQUIRED by schema, fallback to 85.0
-    let audioQuality: number = 85.0; // Default fallback
-    
-    const providedQuality = body.enrollmentAudioQuality;
-    if (providedQuality !== undefined && providedQuality !== null) {
-      if (typeof providedQuality === 'number' && providedQuality >= 0 && providedQuality <= 100 && isFinite(providedQuality)) {
-        audioQuality = providedQuality;
-        console.log('[SUCCESS] Using provided enrollmentAudioQuality:', audioQuality);
-      } else {
-        console.warn('[FALLBACK] Invalid enrollmentAudioQuality:', providedQuality, '- using default:', audioQuality);
-      }
-    } else {
-      console.warn('[FALLBACK] Missing enrollmentAudioQuality - using default:', audioQuality);
-    }
-
-    // ==========================================
-    // STEP 6: VALIDATE DEVICE ID (REQUIRED)
+    // STEP 5: VALIDATE DEVICE ID (REQUIRED)
     // ==========================================
     
     const deviceId = body.deviceId;
@@ -187,7 +153,7 @@ export async function POST(request: NextRequest) {
     }
 
     // ==========================================
-    // STEP 7: EXTRACT OPTIONAL FIELDS WITH SAFE DEFAULTS
+    // STEP 6: EXTRACT OPTIONAL FIELDS WITH SAFE DEFAULTS
     // ==========================================
     
     // sampleCount - optional, default to 1
@@ -203,7 +169,7 @@ export async function POST(request: NextRequest) {
     }
 
     // ==========================================
-    // STEP 8: CHECK FOR DUPLICATE USER
+    // STEP 7: CHECK FOR DUPLICATE USER
     // ==========================================
     
     console.log('[DATABASE] Checking for existing user with userId:', userId.trim(), 'or email:', email.trim().toLowerCase());
@@ -229,7 +195,7 @@ export async function POST(request: NextRequest) {
     }
 
     // ==========================================
-    // STEP 9: PREPARE INSERT DATA WITH ALL FIELDS INITIALIZED
+    // STEP 8: PREPARE INSERT DATA WITH ALL FIELDS INITIALIZED
     // ==========================================
     
     const timestamp = Date.now();
@@ -239,39 +205,39 @@ export async function POST(request: NextRequest) {
       name: name.trim(),
       email: email.trim().toLowerCase(),
       voiceEmbedding: voiceEmbeddingJson,           // JSON string (converted from array)
-      challengePhrases: challengePhrasesJson,        // JSON string (converted from array)
+      challengePhrase: challengePhraseString,        // Single phrase string (not array)
+      enrollmentAudioUrl: null,                      // Optional field
       deviceId: deviceId.trim(),
-      sampleCount: sampleCount,                      // Number with fallback
       enrollmentDate: timestamp,
-      enrollmentAudioDuration: audioDuration,        // Number with fallback (REQUIRED)
-      enrollmentAudioQuality: audioQuality,          // Number with fallback (REQUIRED)
+      sampleCount: sampleCount,                      // Number with fallback
+      isActive: true,                                // Default to active
       createdAt: timestamp,
       updatedAt: timestamp
     };
 
     // ==========================================
-    // STEP 10: FINAL SAFETY CHECK - NO NULL/UNDEFINED VALUES
+    // STEP 9: FINAL SAFETY CHECK - NO UNDEFINED VALUES (null is OK for optional fields)
     // ==========================================
     
-    const nullFields: string[] = [];
+    const undefinedFields: string[] = [];
     Object.entries(insertData).forEach(([key, value]) => {
-      if (value === null || value === undefined) {
-        nullFields.push(key);
+      if (value === undefined) {
+        undefinedFields.push(key);
       }
     });
 
-    if (nullFields.length > 0) {
-      console.error('[VALIDATION ERROR] Insert data contains null/undefined fields:', nullFields);
+    if (undefinedFields.length > 0) {
+      console.error('[VALIDATION ERROR] Insert data contains undefined fields:', undefinedFields);
       console.error('[DEBUG] Full insert data:', insertData);
       return NextResponse.json({ 
-        error: 'Data validation failed: some fields are null or undefined',
+        error: 'Data validation failed: some fields are undefined',
         code: "VALIDATION_ERROR",
-        nullFields
+        undefinedFields
       }, { status: 400 });
     }
 
     // ==========================================
-    // STEP 11: INSERT INTO DATABASE WITH ERROR HANDLING
+    // STEP 10: INSERT INTO DATABASE WITH ERROR HANDLING
     // ==========================================
     
     console.log('[DATABASE] Inserting voice template for userId:', userId.trim());
@@ -305,7 +271,7 @@ export async function POST(request: NextRequest) {
     }
 
     // ==========================================
-    // STEP 12: RETURN SUCCESS RESPONSE
+    // STEP 11: RETURN SUCCESS RESPONSE
     // ==========================================
     
     return NextResponse.json({
@@ -318,8 +284,7 @@ export async function POST(request: NextRequest) {
         name: newTemplate[0].name,
         enrollmentDate: newTemplate[0].enrollmentDate,
         sampleCount: newTemplate[0].sampleCount,
-        audioQuality: newTemplate[0].enrollmentAudioQuality,
-        audioDuration: newTemplate[0].enrollmentAudioDuration
+        isActive: newTemplate[0].isActive
       }
     }, { status: 201 });
 
